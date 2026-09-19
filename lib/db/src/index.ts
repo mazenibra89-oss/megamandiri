@@ -13,6 +13,11 @@ if (!connectionString) {
 }
 
 export const pool = new Pool({ connectionString });
+
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+});
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
