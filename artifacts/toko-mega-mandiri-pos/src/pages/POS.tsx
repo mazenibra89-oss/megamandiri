@@ -7,6 +7,7 @@ import { formatIDR } from '@/lib/utils';
 import { Search, ShoppingCart, Plus, Minus, Wallet, Loader2, QrCode, UserRound, Phone, MessageCircle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Transaction } from '@/lib/db';
+import { receiptPreviewUrl, shareReceiptImage } from '@/lib/receipt-image';
 
 export default function POS() {
   const { activeBranchId, cart, addToCart, updateCartQty, removeFromCart, clearCart } = useAppStore();
@@ -23,6 +24,8 @@ export default function POS() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState('');
+  const [isSharingReceipt, setIsSharingReceipt] = useState(false);
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
@@ -75,6 +78,7 @@ export default function POS() {
       onSuccess: (transaction) => {
         setIsPaymentModalOpen(false);
         setCompletedTx(transaction);
+        receiptPreviewUrl(transaction).then(setReceiptPreview).catch(() => setReceiptPreview(''));
         clearCart();
         setCashReceived('');
         toast.success(`Transaksi Berhasil! Kembalian: ${paymentMethod === 'Tunai' ? formatIDR(cash - cartTotal) : 'Rp0'}`);
@@ -96,11 +100,27 @@ export default function POS() {
     : '';
 
   const sendWhatsapp = (transaction: Transaction) => {
-    if (!transaction.customerPhone) {
-      toast.error('Nomor WhatsApp pelanggan belum tersedia');
-      return;
-    }
-    window.open(`https://wa.me/${transaction.customerPhone}?text=${encodeURIComponent(invoiceText)}`, '_blank', 'noopener,noreferrer');
+    setIsSharingReceipt(true);
+    shareReceiptImage(transaction)
+      .then((result) => {
+        if (result === 'shared') {
+          toast.success('Pilih WhatsApp untuk mengirim gambar struk');
+        } else {
+          toast.info('Gambar struk sudah diunduh. Lampirkan gambar tersebut di WhatsApp.');
+          if (transaction.customerPhone) {
+            window.open(
+              `https://wa.me/${transaction.customerPhone}?text=${encodeURIComponent(`Halo ${transaction.customerName || 'Pelanggan'}, berikut struk pembayaran ${transaction.receiptNo}.`)}`,
+              '_blank',
+              'noopener,noreferrer',
+            );
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        toast.error('Gambar struk belum berhasil dibagikan');
+      })
+      .finally(() => setIsSharingReceipt(false));
   };
 
   const quickCashButtons = [cartTotal, 50000, 100000, 200000].filter(v => v >= cartTotal);
@@ -336,14 +356,20 @@ export default function POS() {
               <p><span className="text-muted-foreground">Pelanggan:</span> <strong>{completedTx.customerName || 'Umum'}</strong></p>
               <p><span className="text-muted-foreground">WhatsApp:</span> <strong>{completedTx.customerPhone || 'Belum diisi'}</strong></p>
             </div>
-            <div className="rounded-xl border p-4 text-sm whitespace-pre-line max-h-52 overflow-y-auto">
-              {invoiceText}
-            </div>
-            <Button className="w-full h-12 bg-green-600 hover:bg-green-700" disabled={!completedTx.customerPhone} onClick={() => sendWhatsapp(completedTx)}>
+            {receiptPreview ? (
+              <div className="rounded-xl border bg-slate-100 p-3 max-h-80 overflow-y-auto">
+                <img src={receiptPreview} alt={`Struk ${completedTx.receiptNo}`} className="w-full max-w-sm mx-auto shadow-sm" />
+              </div>
+            ) : (
+              <div className="rounded-xl border p-4 text-sm whitespace-pre-line max-h-52 overflow-y-auto">
+                {invoiceText}
+              </div>
+            )}
+            <Button className="w-full h-12 bg-green-600 hover:bg-green-700" disabled={isSharingReceipt} onClick={() => sendWhatsapp(completedTx)}>
               <MessageCircle className="h-5 w-5 mr-2" />
-              Kirim Invoice via WhatsApp
+              {isSharingReceipt ? 'Menyiapkan Gambar Struk...' : 'Bagikan Gambar Struk ke WhatsApp'}
             </Button>
-            <Button variant="outline" className="w-full" onClick={() => { setCompletedTx(null); setCustomerName(''); setCustomerPhone(''); }}>
+            <Button variant="outline" className="w-full" onClick={() => { if (receiptPreview) URL.revokeObjectURL(receiptPreview); setReceiptPreview(''); setCompletedTx(null); setCustomerName(''); setCustomerPhone(''); }}>
               Transaksi Baru
             </Button>
           </div>

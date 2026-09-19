@@ -6,6 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Modal } from '@/components/ui/modal';
 import { formatIDR, formatDate } from '@/lib/utils';
 import { AlertCircle, MessageCircle } from 'lucide-react';
+import { shareReceiptImage } from '@/lib/receipt-image';
+import { toast } from 'sonner';
 
 export default function Transactions() {
   const { activeBranchId } = useAppStore();
@@ -22,10 +24,23 @@ export default function Transactions() {
     }
   };
 
-  const sendInvoice = (tx: (typeof transactions)[number]) => {
-    if (!tx.customerPhone) return;
-    const text = `Halo ${tx.customerName || 'Pelanggan'},\n\nInvoice ${tx.receiptNo}\n${tx.items.map((item) => `${item.qty}x ${item.name} — ${formatIDR(item.qty * item.price)}`).join('\n')}\n\nTotal: ${formatIDR(tx.total)}\nPembayaran: ${tx.paymentMethod}\n\nTerima kasih sudah berbelanja di Toko Mega Mandiri.`;
-    window.open(`https://wa.me/${tx.customerPhone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+  const sendInvoice = async (tx: (typeof transactions)[number]) => {
+    try {
+      const result = await shareReceiptImage(tx);
+      if (result === 'downloaded') {
+        toast.info('Gambar struk diunduh. Lampirkan gambar tersebut saat WhatsApp terbuka.');
+        if (tx.customerPhone) {
+          window.open(
+            `https://wa.me/${tx.customerPhone}?text=${encodeURIComponent(`Halo ${tx.customerName || 'Pelanggan'}, berikut struk pembayaran ${tx.receiptNo}.`)}`,
+            '_blank',
+            'noopener,noreferrer',
+          );
+        }
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      toast.error('Gagal menyiapkan gambar struk');
+    }
   };
 
   return (
@@ -74,11 +89,9 @@ export default function Transactions() {
                   <TableCell className="text-right">
                     {tx.status === 'success' && (
                       <div className="flex justify-end gap-1">
-                        {tx.customerPhone && (
-                          <Button variant="ghost" size="sm" className="text-green-600 h-8 px-2 text-xs" onClick={() => sendInvoice(tx)}>
-                            <MessageCircle className="h-4 w-4 mr-1" /> WhatsApp
-                          </Button>
-                        )}
+                        <Button variant="ghost" size="sm" className="text-green-600 h-8 px-2 text-xs" onClick={() => sendInvoice(tx)}>
+                          <MessageCircle className="h-4 w-4 mr-1" /> Struk Gambar
+                        </Button>
                         <Button variant="ghost" size="sm" className="text-destructive h-8 px-2 text-xs" onClick={() => setVoidConfirmId(tx.id)}>
                           Void
                         </Button>
