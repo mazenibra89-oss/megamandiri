@@ -1,0 +1,147 @@
+PERAN
+Kamu adalah senior full-stack engineer sekaligus product designer. Bangun aplikasi web POS lengkap bernama "Toko Mega Mandiri POS" untuk toko retail "Toko Mega Mandiri" (Instagram: @tokomegamandiri). Toko ini punya toko fisik di beberapa cabang dan juga berjualan di Shopee. Seluruh antarmuka memakai Bahasa Indonesia. Hasil akhir harus langsung jalan, siap demo, dan tidak boleh error.
+
+=====================================================
+1. ATURAN WAJIB: ANTI-RUSAK (PRIORITAS TERTINGGI)
+=====================================================
+Aplikasi akan didemokan langsung. Di tengah demo, browser bisa di-refresh kapan saja atau satu kolom diisi teks ngawur. Aplikasi tidak boleh error, blank, atau kehilangan data.
+
+Persistensi
+- Semua data (cabang, produk, stok, transaksi, pelanggan, pesanan Shopee, pengaturan, cabang yang sedang dipilih, keranjang kasir yang belum dibayar, shift) disimpan otomatis ke localStorage (atau IndexedDB) setiap ada perubahan.
+- Setelah refresh, tutup tab, atau buka ulang browser, semuanya kembali persis seperti sebelumnya, termasuk halaman yang sedang dibuka dan keranjang yang belum dibayar.
+- Simpan dengan versi skema (schemaVersion) dan fungsi migrasi. Saat load, validasi data dengan zod. Jika data korup atau tidak valid, jangan crash. Simpan salinan cadangan data lama, pulihkan bagian yang valid, dan tampilkan toast informatif.
+- Semua JSON.parse dan akses storage dibungkus try/catch. Jika storage penuh atau diblokir, aplikasi tetap jalan (fallback memori) dan menampilkan peringatan.
+- Sinkronkan antar-tab lewat event "storage".
+- Saat pertama kali dibuka dan data kosong, isi otomatis dengan data demo (lihat bagian 8).
+
+Routing
+- Gunakan HashRouter agar refresh di halaman mana pun tidak menghasilkan 404.
+- Sediakan halaman 404 yang ramah dengan tombol "Kembali ke Dashboard".
+- Jika ID di URL tidak ditemukan (produk, transaksi), tampilkan empty state, bukan error.
+- Jika belum ada cabang terpilih, redirect ke halaman Pilih Cabang.
+
+Validasi dan sanitasi input (di setiap form dan kolom)
+- Bayangkan penguji mengetik sembarang teks di setiap kolom: "asdfghjkl", emoji, <script>alert(1)</script>, kutip ganda dan tunggal, '; DROP TABLE, teks 10.000 karakter, spasi saja, karakter Arab atau Mandarin, angka negatif, desimal, "1e999", "abc" di kolom angka, dan angka raksasa.
+- Kolom angka hanya menerima digit (filter saat mengetik), tidak pernah menghasilkan NaN atau Infinity, punya batas min dan max yang masuk akal, dan uang disimpan sebagai integer Rupiah.
+- Kolom teks di-trim, dibatasi panjangnya (nama produk maks 100, catatan maks 300, dst), dan selalu dirender sebagai teks (React escape). Jangan pernah pakai dangerouslySetInnerHTML.
+- Nomor WhatsApp dinormalisasi otomatis (0812..., +62812..., 62812..., dan 812... semuanya menjadi 62812...). Jika tidak valid (bukan 9-13 digit setelah 62), tampilkan pesan error inline "Nomor WhatsApp tidak valid" dan jangan kirim.
+- Pesan error tampil inline di bawah kolom (Bahasa Indonesia, sopan, jelas). Teks yang sudah diketik tidak hilang, dan data yang tersimpan sebelumnya tidak berubah saat input tidak valid.
+- Bungkus seluruh aplikasi dengan Error Boundary, dan tiap halaman punya boundary sendiri. Jika ada kegagalan tak terduga, tampilkan kartu "Terjadi kendala, data kamu aman" dengan tombol "Muat ulang halaman" dan "Kembali ke Dashboard". Jangan tampilkan layar putih atau stack trace.
+- Cegah aksi ganda. Tombol "Konfirmasi Pembayaran", "Simpan", dan "Hapus" di-disable dan menampilkan spinner saat diproses, sehingga klik dua kali tidak menghasilkan transaksi ganda atau pengurangan stok ganda.
+- Stok tidak boleh pernah negatif. Kuantitas di keranjang dibatasi sesuai stok, dengan pesan "Stok tersisa X".
+- Setiap aksi destruktif (hapus produk, hapus cabang, void transaksi, reset data) wajib memakai dialog konfirmasi.
+- Semua operasi yang mengubah beberapa data sekaligus (mis. penjualan = simpan transaksi + kurangi stok + catat mutasi stok + antrian sinkron Shopee) harus atomik: semuanya berhasil atau tidak ada yang berubah.
+
+=====================================================
+2. TECH STACK
+=====================================================
+- React + Vite + TypeScript, Tailwind CSS, komponen gaya shadcn/ui, lucide-react untuk ikon, recharts untuk grafik, zod untuk validasi, zustand (middleware persist) untuk state, date-fns untuk tanggal, library QR (mis. qrcode) untuk membuat QR.
+- Tidak butuh backend. Tetapi pisahkan lapisan data (repository/service) dan lapisan Shopee (ShopeeService dengan implementasi mock) supaya nanti mudah diganti dengan API sungguhan.
+- Jika platform hanya mendukung satu file, tetap rapikan menjadi beberapa modul logis di satu file.
+
+=====================================================
+3. ALUR UTAMA (SESUAI KEBUTUHAN BISNIS)
+=====================================================
+A. Pilih Cabang (layar pertama sebelum masuk POS)
+- Tampilkan kartu cabang (nama, kode, alamat, telepon, ringkasan omzet hari ini, jumlah stok menipis, badge "Tersambung Shopee" jika cabang itu yang tersambung).
+- Tombol "+ Tambah Cabang" (form: nama, kode singkat unik, alamat, telepon). Bisa edit dan nonaktifkan cabang.
+- Saat menambah cabang, tawarkan "Salin daftar produk dari cabang lain (stok mulai 0)" atau "Mulai kosong".
+- Cabang terakhir yang dipakai diberi tanda "Terakhir dipakai". Setelah dipilih, masuk ke aplikasi. Header selalu menampilkan nama cabang aktif dengan tombol "Ganti Cabang".
+- Data tiap cabang TERPISAH: produk, stok, transaksi, shift, laporan, nomor invoice. Dashboard dan laporan hanya menampilkan cabang aktif, dengan opsi "Semua Cabang" khusus untuk Owner di laporan.
+
+B. Transaksi di Toko (Kasir)
+1. Kasir memilih produk (klik kartu produk, cari nama/SKU, atau scan barcode lewat input yang selalu fokus, tekan Enter untuk menambah).
+2. Keranjang menampilkan qty (stepper + ketik langsung), harga satuan, subtotal, diskon (Rp atau %), dan catatan.
+3. Klik "Bayar". Kasir menawarkan dua metode: TUNAI atau QRIS.
+   - Tunai: input uang diterima, tombol cepat (Uang Pas, 50rb, 100rb, 200rb), kembalian dihitung otomatis. Tombol konfirmasi aktif hanya jika uang cukup.
+   - QRIS: tampilkan QR (gambar QRIS toko yang diunggah di Pengaturan, atau QR placeholder demo), nominal besar, dan tombol "Pembayaran Diterima" yang dikonfirmasi manual oleh kasir.
+4. Setelah pembayaran terkonfirmasi: stok berkurang di sistem, mutasi stok tercatat, dan (jika produk terhubung Shopee) stok Shopee diperbarui dan tercatat di Log Sinkron.
+5. Layar sukses: "Pembayaran berhasil" dengan ringkasan. Di sini kasir menanyakan nomor WhatsApp pelanggan. Ada input nomor WA (dengan saran otomatis dari pelanggan lama), tombol "Kirim Invoice via WhatsApp" (membuka tautan wa.me dengan teks invoice yang sudah terisi rapi dari template di Pengaturan), tombol "Cetak Struk", dan tombol "Lewati". Lalu tombol besar "Transaksi Baru".
+6. Pelanggan baru otomatis tersimpan (nama opsional, nomor WA).
+
+C. Sinkronisasi Stok dengan Shopee (disimulasikan dengan meyakinkan)
+- Stok sistem = stok Shopee toko. Di Pengaturan, pemilik menunjuk SATU cabang sebagai "Cabang terhubung Shopee" (stok cabang itu yang dicerminkan ke Shopee).
+- Halaman "Shopee":
+  - Status koneksi (Terhubung / Terputus, tombol Hubungkan Ulang), nama toko Shopee, waktu sinkron terakhir, tombol "Sinkronkan Sekarang", toggle "Sinkron otomatis" (simulasi polling tiap 30 detik).
+  - Pemetaan produk: tiap produk punya toggle "Jual di Shopee", plus Shopee Item ID / SKU. Produk yang belum dipetakan diberi peringatan.
+  - Pesanan Shopee: daftar dengan status Baru, Diproses, Dikirim, Selesai, dan Dibatalkan. Pesanan baru langsung mengurangi stok. Jika dibatalkan, stok dikembalikan.
+  - Tombol "Simulasi Pesanan Shopee Masuk" (untuk demo): membuat pesanan acak dari produk terhubung, sehingga stok di POS berkurang secara real-time dengan notifikasi toast "Pesanan Shopee baru #SPE... stok diperbarui".
+  - Log Sinkron: contoh "Stok SKU-001 di Shopee diperbarui: 24 → 23 (penjualan offline INV/...)".
+  - Deteksi risiko oversell: jika pesanan Shopee melebihi stok, tandai "Perlu perhatian" tanpa membuat stok negatif.
+- Pesanan Shopee juga tampil di laporan sebagai channel "Shopee" (terpisah dari "Toko").
+- Tambahkan catatan kecil di UI: "Mode simulasi. Siap dihubungkan ke Shopee Open API."
+
+=====================================================
+4. FITUR MASTER PRODUK
+=====================================================
+- CRUD produk: nama, SKU (unik per cabang), barcode, kategori, satuan (pcs, pack, dus, kg, dst), harga beli (HPP), harga jual eceran, stok awal, stok minimum, foto (upload dikompres, opsional, ada fallback ikon), status aktif.
+- HARGA GROSIR BERTINGKAT: tiap produk bisa punya 0-5 tingkat (min qty → harga per unit), misalnya beli ≥6 = Rp X, ≥12 = Rp Y, ≥24 = Rp Z.
+  - Validasi: min qty harus naik berurutan dan unik, harga grosir tidak boleh lebih tinggi dari harga eceran, dan beri peringatan jika harga di bawah HPP.
+  - Di kasir, harga otomatis berubah ke tingkat grosir saat qty mencapai batas, dengan badge "Harga Grosir" di baris keranjang dan petunjuk "Tambah 3 lagi untuk harga Rp X".
+- Pencarian, filter kategori dan status stok (aman, menipis, habis), pengurutan, tampilan tabel di desktop dan kartu di mobile.
+- Import dan export CSV (input CSV dilindungi validasi: baris salah dilewati dan dilaporkan, tidak membuat crash).
+- Kategori bisa dikelola.
+
+=====================================================
+5. FITUR STOK & INVENTORI
+=====================================================
+- Riwayat Mutasi Stok per produk dan global (jenis: penjualan toko, pesanan Shopee, pembatalan Shopee, retur/void, barang masuk, penyesuaian, transfer masuk, transfer keluar), lengkap dengan stok sebelum → sesudah, waktu, dan pelaku.
+- Barang Masuk (restock) dengan pemilihan supplier, banyak item sekaligus.
+- Stok Opname / penyesuaian stok dengan alasan wajib.
+- Transfer stok antar cabang (kurangi di asal, tambah di tujuan, tercatat di kedua sisi).
+- Peringatan stok menipis di dashboard dan badge di menu.
+- Manajemen supplier sederhana (nama, kontak).
+
+=====================================================
+6. FITUR POS UMUM LAINNYA
+=====================================================
+- Dashboard: omzet hari ini, laba kotor, jumlah transaksi, rata-rata keranjang, grafik penjualan 7/30 hari, pembagian channel (Toko vs Shopee) dan metode bayar (Tunai vs QRIS), produk terlaris, stok menipis, dan transaksi terakhir.
+- Riwayat Transaksi: filter tanggal, metode, dan status, pencarian nomor invoice, halaman detail, cetak ulang, dan kirim ulang invoice via WA. VOID/Retur (dengan konfirmasi dan alasan) mengembalikan stok dan tercatat.
+- Tahan Pesanan (Hold): simpan keranjang sementara dan panggil kembali, mendukung beberapa keranjang tertahan.
+- Shift Kasir: buka kas (modal awal) dan tutup kas (hitung uang fisik, tampilkan selisih, ringkasan tunai vs QRIS).
+- Pelanggan: daftar pelanggan (nama, WA, total belanja, jumlah transaksi, terakhir belanja), pencarian, dan riwayat belanja.
+- Diskon per item dan per transaksi; PPN opsional (toggle di Pengaturan).
+- Nomor invoice otomatis per cabang, format INV/{KODE-CABANG}/{YYMM}/{0001}.
+- Struk/invoice: tampilan rapi (logo, nama toko, cabang, alamat, item, harga grosir tertandai, diskon, total, metode bayar, kembalian, footer ucapan terima kasih), dengan CSS print untuk kertas thermal 58mm/80mm. Tersedia juga versi teks untuk WhatsApp.
+- Laporan: penjualan per periode, per produk, per kategori, per kasir, laba rugi sederhana, dan export CSV.
+- Peran sederhana: Owner dan Kasir (ganti lewat menu profil, tanpa password agar demo lancar). Kasir tidak melihat HPP/laba dan tidak bisa void atau hapus.
+- Pengaturan: profil toko (nama, alamat, logo, footer struk), template pesan WA invoice (dengan variabel {nama}, {invoice}, {total}, dst), unggah gambar QRIS, ukuran kertas struk, cabang terhubung Shopee, pajak, Backup (unduh JSON) dan Restore (unggah JSON, divalidasi dulu), serta "Reset ke Data Demo" (konfirmasi dua langkah).
+
+=====================================================
+7. UI/UX
+=====================================================
+- Gaya modern, bersih, dan profesional. Font Plus Jakarta Sans (atau Inter). Warna utama biru indigo yang tegas dengan aksen amber. Oranye Shopee HANYA untuk badge dan elemen terkait Shopee. Dukung mode terang dan gelap (toggle, tersimpan).
+- Layout: sidebar di desktop, bottom navigation di mobile. Halaman Kasir memakai dua panel (grid produk di kiri, keranjang di kanan). Di mobile, keranjang menjadi bottom sheet dengan bar total yang menempel.
+- Tablet-first untuk kasir: target sentuh minimal 44px, angka besar dan mudah dibaca, tombol Bayar besar dan menonjol.
+- Format Rupiah konsisten (Rp 1.250.000), tanggal format Indonesia, dan zona waktu WIB.
+- Shortcut keyboard: F2 fokus pencarian/scan, F9 bayar, Esc menutup dialog. Tampilkan petunjuk shortcut kecil.
+- Umpan balik: toast untuk setiap aksi, skeleton loading, empty state dengan ilustrasi dan ajakan bertindak, animasi transisi halus (tidak berlebihan), dan konfirmasi visual saat item masuk keranjang.
+- Aksesibilitas: kontras cukup, label form jelas, fokus terlihat, navigasi keyboard berfungsi.
+- Copywriting ramah dan singkat dalam Bahasa Indonesia.
+- Isian yang salah tidak boleh membuat layout pecah: teks panjang dipotong dengan ellipsis, tabel bisa di-scroll horizontal, dan angka besar tetap muat.
+
+=====================================================
+8. DATA DEMO (SEED)
+=====================================================
+Karena jenis produk pasti belum diketahui, gunakan produk retail umum kebutuhan sehari-hari agar demo terlihat hidup dan mudah diganti pemilik.
+- 2 cabang: "Mega Mandiri - Pusat" (tersambung Shopee) dan "Mega Mandiri - Cabang 2".
+- Sekitar 24 produk per cabang di 4-5 kategori, sebagian punya harga grosir bertingkat, beberapa stok menipis dan satu habis (untuk memperlihatkan peringatan).
+- 15-30 transaksi historis 7 hari terakhir (campuran Tunai/QRIS dan Toko/Shopee) supaya dashboard dan grafik langsung terisi.
+- Beberapa pelanggan contoh dengan nomor WA fiktif, 2 supplier, dan 5 pesanan Shopee dengan status berbeda.
+
+=====================================================
+9. UJI MANDIRI SEBELUM SELESAI (WAJIB DILAKUKAN DAN DIPERBAIKI)
+=====================================================
+Simulasikan dan pastikan semuanya lolos tanpa error:
+1. Refresh di setiap halaman (termasuk saat dialog pembayaran terbuka dan saat keranjang terisi): data dan keranjang tetap ada.
+2. Di setiap kolom teks: ketik "asdasd###", emoji, HTML/script, teks 5.000 karakter, lalu simpan. Aplikasi tetap stabil, tidak ada crash, dan input ditolak atau dibersihkan dengan pesan yang jelas.
+3. Di setiap kolom angka: ketik huruf, negatif, desimal, 1e999, kosong, dan angka sangat besar. Tidak ada NaN, tidak ada error, dan stok tidak pernah negatif.
+4. Klik "Konfirmasi Pembayaran" berkali-kali dengan cepat: hanya satu transaksi tercipta dan stok berkurang sekali.
+5. Ubah data di localStorage secara manual sampai rusak: aplikasi tetap terbuka, menampilkan pemulihan, dan tidak blank.
+6. Buka URL hash yang tidak ada atau ID yang tidak valid: tampil 404/empty state, bukan error.
+7. Alur lengkap: pilih cabang → tambah cabang → tambah produk dengan harga grosir → jual (Tunai dan QRIS) → stok berkurang → input WA → invoice terbuka di WhatsApp → simulasi pesanan Shopee → stok berkurang lagi dan log sinkron tercatat → void transaksi → stok kembali.
+8. Data cabang A tidak bocor ke cabang B.
+9. Tampilan rapi di mobile (375px), tablet (768px), dan desktop (1440px), baik mode terang maupun gelap.
+
+OUTPUT
+Berikan kode lengkap yang bisa langsung dijalankan, ringkasan singkat cara menjalankannya, dan daftar akun/peran demo. Jangan tinggalkan placeholder, TODO, atau fitur setengah jadi. Jika ada bagian yang terpaksa disederhanakan, jelaskan secara singkat di akhir.

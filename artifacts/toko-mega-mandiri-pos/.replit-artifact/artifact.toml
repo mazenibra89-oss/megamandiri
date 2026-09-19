@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Toko Mega Mandiri POS"
+description = "Aplikasi point of sale retail berbahasa Indonesia untuk Toko Mega Mandiri, mencakup kasir, stok multi-cabang, produk grosir, pelanggan, laporan, shift, pengaturan, serta simulasi sinkronisasi Shopee dengan persistensi lokal yang aman."
+version = "1.0.0"
+id = "artifacts/toko-mega-mandiri-pos"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24876
+
+[services.development]
+run = "pnpm --filter @workspace/toko-mega-mandiri-pos run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/toko-mega-mandiri-pos", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/toko-mega-mandiri-pos/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24876"
+BASE_PATH = "/"
