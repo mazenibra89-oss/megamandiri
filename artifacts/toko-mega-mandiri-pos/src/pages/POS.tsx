@@ -7,7 +7,7 @@ import { formatIDR } from '@/lib/utils';
 import { Search, ShoppingCart, Plus, Minus, Wallet, Loader2, QrCode, UserRound, Phone, MessageCircle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Transaction } from '@/lib/db';
-import { receiptPreviewUrl, shareReceiptImage } from '@/lib/receipt-image';
+import { receiptPreviewUrl } from '@/lib/receipt-image';
 
 export default function POS() {
   const { activeBranchId, cart, addToCart, updateCartQty, removeFromCart, clearCart } = useAppStore();
@@ -25,7 +25,6 @@ export default function POS() {
   const [phoneError, setPhoneError] = useState('');
   const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
   const [receiptPreview, setReceiptPreview] = useState('');
-  const [isSharingReceipt, setIsSharingReceipt] = useState(false);
 
   const getEffectivePrice = (item: (typeof cart)[number]) => {
     const matchedTier = [...(item.wholesaleTiers || [])]
@@ -106,27 +105,28 @@ export default function POS() {
     : '';
 
   const sendWhatsapp = (transaction: Transaction) => {
-    setIsSharingReceipt(true);
-    shareReceiptImage(transaction)
-      .then((result) => {
-        if (result === 'shared') {
-          toast.success('Pilih WhatsApp untuk mengirim gambar struk');
-        } else {
-          toast.info('Gambar struk sudah diunduh. Lampirkan gambar tersebut di WhatsApp.');
-          if (transaction.customerPhone) {
-            window.open(
-              `https://wa.me/${transaction.customerPhone}?text=${encodeURIComponent(`Halo ${transaction.customerName || 'Pelanggan'}, berikut struk pembayaran ${transaction.receiptNo}.`)}`,
-              '_blank',
-              'noopener,noreferrer',
-            );
-          }
-        }
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-        toast.error('Gambar struk belum berhasil dibagikan');
-      })
-      .finally(() => setIsSharingReceipt(false));
+    if (!transaction.customerPhone) {
+      toast.error('Isi nomor WhatsApp pelanggan terlebih dahulu');
+      return;
+    }
+
+    const message = `Halo ${transaction.customerName || 'Pelanggan'},
+
+Terima kasih sudah berbelanja di Toko Mega Mandiri.
+
+Invoice: ${transaction.receiptNo}
+${transaction.items.map((item) => `${item.qty}x ${item.name} — ${formatIDR(item.qty * item.price)}`).join('\n')}
+
+Total: ${formatIDR(transaction.total)}
+Pembayaran: ${transaction.paymentMethod}
+
+Terima kasih atas kunjungan Anda.`;
+
+    window.open(
+      `https://wa.me/${transaction.customerPhone}?text=${encodeURIComponent(message)}`,
+      '_blank',
+      'noopener,noreferrer',
+    );
   };
 
   const quickCashButtons = [cartTotal, 50000, 100000, 200000].filter(v => v >= cartTotal);
@@ -382,9 +382,9 @@ export default function POS() {
                 {invoiceText}
               </div>
             )}
-            <Button className="w-full h-12 bg-green-600 hover:bg-green-700" disabled={isSharingReceipt} onClick={() => sendWhatsapp(completedTx)}>
+            <Button className="w-full h-12 bg-green-600 hover:bg-green-700" onClick={() => sendWhatsapp(completedTx)}>
               <MessageCircle className="h-5 w-5 mr-2" />
-              {isSharingReceipt ? 'Menyiapkan Gambar Struk...' : 'Bagikan Gambar Struk ke WhatsApp'}
+              Kirim Invoice ke WhatsApp
             </Button>
             <Button variant="outline" className="w-full" onClick={() => { if (receiptPreview) URL.revokeObjectURL(receiptPreview); setReceiptPreview(''); setCompletedTx(null); setCustomerName(''); setCustomerPhone(''); }}>
               Transaksi Baru
