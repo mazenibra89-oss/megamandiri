@@ -1,8 +1,8 @@
-export interface Branch { id: string; name: string; address: string; }
+export interface Branch { id: string; name: string; address: string; phone?: string; }
 export interface Product { id: string; sku: string; name: string; category: string; price: number; stock: Record<string, number>; image?: string; }
 export interface Customer { id: string; name: string; phone: string; points: number; }
 export interface TransactionItem { productId: string; name: string; qty: number; price: number; }
-export interface Transaction { id: string; receiptNo: string; branchId: string; date: string; total: number; paymentMethod: string; status: 'success' | 'void'; items: TransactionItem[]; customerId?: string; }
+export interface Transaction { id: string; receiptNo: string; branchId: string; date: string; total: number; paymentMethod: string; status: 'success' | 'void'; items: TransactionItem[]; customerId?: string; customerName?: string; customerPhone?: string; }
 export interface ShopeeOrder { id: string; orderNo: string; items: {productId: string, qty: number}[]; total: number; status: 'new' | 'ready' | 'completed'; date: string; }
 export interface Shift { id: string; branchId: string; startTime: string; endTime?: string; initialCash: number; finalCash?: number; status: 'active' | 'closed'; }
 export interface PosDatabase {

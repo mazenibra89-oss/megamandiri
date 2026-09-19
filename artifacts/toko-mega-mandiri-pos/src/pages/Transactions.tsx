@@ -5,7 +5,7 @@ import { Card, Badge, Button } from '@/components/ui/primitives';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Modal } from '@/components/ui/modal';
 import { formatIDR, formatDate } from '@/lib/utils';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, MessageCircle } from 'lucide-react';
 
 export default function Transactions() {
   const { activeBranchId } = useAppStore();
@@ -20,6 +20,12 @@ export default function Transactions() {
         onSuccess: () => setVoidConfirmId(null)
       });
     }
+  };
+
+  const sendInvoice = (tx: (typeof transactions)[number]) => {
+    if (!tx.customerPhone) return;
+    const text = `Halo ${tx.customerName || 'Pelanggan'},\n\nInvoice ${tx.receiptNo}\n${tx.items.map((item) => `${item.qty}x ${item.name} — ${formatIDR(item.qty * item.price)}`).join('\n')}\n\nTotal: ${formatIDR(tx.total)}\nPembayaran: ${tx.paymentMethod}\n\nTerima kasih sudah berbelanja di Toko Mega Mandiri.`;
+    window.open(`https://wa.me/${tx.customerPhone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -37,6 +43,7 @@ export default function Transactions() {
                 <TableHead>Waktu</TableHead>
                 <TableHead>No Resi</TableHead>
                 <TableHead>Item</TableHead>
+                <TableHead>Pelanggan</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Metode</TableHead>
                 <TableHead>Status</TableHead>
@@ -51,6 +58,10 @@ export default function Transactions() {
                   <TableCell className="text-sm max-w-[200px] truncate">
                     {tx.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
                   </TableCell>
+                  <TableCell>
+                    <p className="text-sm font-medium">{tx.customerName || 'Umum'}</p>
+                    <p className="text-xs text-muted-foreground">{tx.customerPhone || '-'}</p>
+                  </TableCell>
                   <TableCell className="font-semibold">{formatIDR(tx.total)}</TableCell>
                   <TableCell><Badge variant="outline">{tx.paymentMethod}</Badge></TableCell>
                   <TableCell>
@@ -62,16 +73,23 @@ export default function Transactions() {
                   </TableCell>
                   <TableCell className="text-right">
                     {tx.status === 'success' && (
-                      <Button variant="ghost" size="sm" className="text-destructive h-8 px-2 text-xs" onClick={() => setVoidConfirmId(tx.id)}>
-                        Void
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        {tx.customerPhone && (
+                          <Button variant="ghost" size="sm" className="text-green-600 h-8 px-2 text-xs" onClick={() => sendInvoice(tx)}>
+                            <MessageCircle className="h-4 w-4 mr-1" /> WhatsApp
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" className="text-destructive h-8 px-2 text-xs" onClick={() => setVoidConfirmId(tx.id)}>
+                          Void
+                        </Button>
+                      </div>
                     )}
                   </TableCell>
                 </TableRow>
               ))}
               {transactions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     Belum ada transaksi.
                   </TableCell>
                 </TableRow>

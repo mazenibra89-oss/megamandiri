@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getDb, saveDb, Product, Transaction, Shift, generateId, Customer, ShopeeOrder } from '../lib/db';
+import { getDb, saveDb, Product, Transaction, Shift, generateId, Customer, ShopeeOrder, Branch } from '../lib/db';
 import { toast } from 'sonner';
 
 const delay = (ms = 300) => new Promise(res => setTimeout(res, ms));
@@ -8,6 +8,29 @@ export const useBranches = () => useQuery({
   queryKey: ['branches'],
   queryFn: async () => { await delay(); return getDb().branches; }
 });
+
+export const useAddBranch = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (branch: Omit<Branch, 'id'>) => {
+      await delay();
+      const db = getDb();
+      const newBranch: Branch = { ...branch, id: generateId('br') };
+      db.branches.push(newBranch);
+      db.products = db.products.map((product: Product) => ({
+        ...product,
+        stock: { ...product.stock, [newBranch.id]: 0 },
+      }));
+      saveDb(db);
+      return newBranch;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['branches'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+      toast.success('Cabang baru berhasil ditambahkan');
+    },
+  });
+};
 
 export const useProducts = () => useQuery({
   queryKey: ['products'],
@@ -112,12 +135,28 @@ export const useCreateTransaction = () => {
       });
 
       db.transactions.push(newTx);
+      if (data.customerPhone) {
+        const normalizedPhone = data.customerPhone;
+        const existing = db.customers.find((customer: Customer) => customer.phone === normalizedPhone);
+        if (!existing) {
+          db.customers.push({
+            id: generateId('cus'),
+            name: data.customerName || 'Pelanggan',
+            phone: normalizedPhone,
+            points: Math.floor(data.total / 10000),
+          });
+        } else {
+          existing.name = data.customerName || existing.name;
+          existing.points += Math.floor(data.total / 10000);
+        }
+      }
       saveDb(db);
       return newTx;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
     }
   });
 };

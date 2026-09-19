@@ -4,8 +4,9 @@ import { useProducts, useCreateTransaction, useActiveShift } from '@/hooks/use-p
 import { Card, Button, Input, Badge, Label, CardContent } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/modal';
 import { formatIDR } from '@/lib/utils';
-import { Search, ShoppingCart, Plus, Minus, Trash2, Wallet, CreditCard, Loader2, QrCode } from 'lucide-react';
+import { Search, ShoppingCart, Plus, Minus, Wallet, Loader2, QrCode, UserRound, Phone, MessageCircle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
+import type { Transaction } from '@/lib/db';
 
 export default function POS() {
   const { activeBranchId, cart, addToCart, updateCartQty, removeFromCart, clearCart } = useAppStore();
@@ -18,6 +19,10 @@ export default function POS() {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'Tunai' | 'QRIS'>('Tunai');
   const [cashReceived, setCashReceived] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
@@ -52,20 +57,50 @@ export default function POS() {
       return;
     }
 
+    const normalizedPhone = normalizeWhatsapp(customerPhone);
+    if (customerPhone.trim() && !normalizedPhone) {
+      setPhoneError('Nomor WhatsApp tidak valid');
+      return;
+    }
+    setPhoneError('');
     createTx.mutate({
       branchId: activeBranchId!,
       total: cartTotal,
       paymentMethod,
       status: 'success',
+      customerName: customerName.trim().slice(0, 80) || undefined,
+      customerPhone: normalizedPhone || undefined,
       items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price }))
     }, {
-      onSuccess: () => {
+      onSuccess: (transaction) => {
         setIsPaymentModalOpen(false);
+        setCompletedTx(transaction);
         clearCart();
         setCashReceived('');
         toast.success(`Transaksi Berhasil! Kembalian: ${paymentMethod === 'Tunai' ? formatIDR(cash - cartTotal) : 'Rp0'}`);
       }
     });
+  };
+
+  const normalizeWhatsapp = (value: string) => {
+    let digits = value.replace(/\D/g, '');
+    if (digits.startsWith('0')) digits = `62${digits.slice(1)}`;
+    else if (digits.startsWith('8')) digits = `62${digits}`;
+    if (!digits.startsWith('62')) return '';
+    const localDigits = digits.slice(2);
+    return localDigits.length >= 9 && localDigits.length <= 13 ? digits : '';
+  };
+
+  const invoiceText = completedTx
+    ? `Halo ${completedTx.customerName || 'Pelanggan'},\n\nTerima kasih sudah berbelanja di Toko Mega Mandiri.\n\nInvoice: ${completedTx.receiptNo}\n${completedTx.items.map((item) => `${item.qty}x ${item.name} — ${formatIDR(item.qty * item.price)}`).join('\n')}\n\nTotal: ${formatIDR(completedTx.total)}\nPembayaran: ${completedTx.paymentMethod}\n\nTerima kasih atas kunjungan Anda.`
+    : '';
+
+  const sendWhatsapp = (transaction: Transaction) => {
+    if (!transaction.customerPhone) {
+      toast.error('Nomor WhatsApp pelanggan belum tersedia');
+      return;
+    }
+    window.open(`https://wa.me/${transaction.customerPhone}?text=${encodeURIComponent(invoiceText)}`, '_blank', 'noopener,noreferrer');
   };
 
   const quickCashButtons = [cartTotal, 50000, 100000, 200000].filter(v => v >= cartTotal);
@@ -176,6 +211,20 @@ export default function POS() {
         </div>
 
         <div className="p-4 bg-card border-t shrink-0">
+          <div className="grid grid-cols-1 gap-2 mb-4">
+            <Label className="text-xs text-muted-foreground">Data Pelanggan</Label>
+            <div className="relative">
+              <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input className="pl-9" maxLength={80} value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nama pelanggan (opsional)" />
+            </div>
+            <div>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input className="pl-9" inputMode="tel" value={customerPhone} onChange={(e) => { setCustomerPhone(e.target.value.slice(0, 18)); setPhoneError(''); }} placeholder="Nomor WhatsApp" />
+              </div>
+              {phoneError && <p className="text-xs text-destructive mt-1">{phoneError}</p>}
+            </div>
+          </div>
           <div className="flex justify-between items-center mb-4">
             <span className="text-muted-foreground font-medium">Total</span>
             <span className="text-2xl font-bold text-primary">{formatIDR(cartTotal)}</span>
@@ -256,6 +305,15 @@ export default function POS() {
               )}
             </div>
           )}
+          {paymentMethod === 'QRIS' && (
+            <div className="rounded-xl border bg-white p-5 text-center animate-in slide-in-from-bottom-2">
+              <div className="mx-auto w-48 h-48 p-3 border-4 border-slate-900 rounded-xl bg-white">
+                <div className="qris-dummy w-full h-full" aria-label="QRIS dummy untuk tampilan" />
+              </div>
+              <p className="mt-3 text-sm font-bold text-slate-900">QRIS Toko Mega Mandiri</p>
+              <p className="text-xs text-slate-500">QR dummy untuk tampilan demo</p>
+            </div>
+          )}
 
           <Button 
             className="w-full h-14 text-lg font-bold mt-4" 
@@ -265,6 +323,31 @@ export default function POS() {
             {createTx.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : 'Selesaikan Pembayaran'}
           </Button>
         </div>
+      </Modal>
+      <Modal isOpen={!!completedTx} onClose={() => setCompletedTx(null)} title="Pembayaran Berhasil">
+        {completedTx && (
+          <div className="space-y-5">
+            <div className="text-center">
+              <CheckCircle2 className="h-14 w-14 text-green-600 mx-auto mb-2" />
+              <p className="text-2xl font-bold">{formatIDR(completedTx.total)}</p>
+              <p className="text-sm text-muted-foreground">{completedTx.receiptNo}</p>
+            </div>
+            <div className="rounded-xl bg-muted p-4 space-y-1 text-sm">
+              <p><span className="text-muted-foreground">Pelanggan:</span> <strong>{completedTx.customerName || 'Umum'}</strong></p>
+              <p><span className="text-muted-foreground">WhatsApp:</span> <strong>{completedTx.customerPhone || 'Belum diisi'}</strong></p>
+            </div>
+            <div className="rounded-xl border p-4 text-sm whitespace-pre-line max-h-52 overflow-y-auto">
+              {invoiceText}
+            </div>
+            <Button className="w-full h-12 bg-green-600 hover:bg-green-700" disabled={!completedTx.customerPhone} onClick={() => sendWhatsapp(completedTx)}>
+              <MessageCircle className="h-5 w-5 mr-2" />
+              Kirim Invoice via WhatsApp
+            </Button>
+            <Button variant="outline" className="w-full" onClick={() => { setCompletedTx(null); setCustomerName(''); setCustomerPhone(''); }}>
+              Transaksi Baru
+            </Button>
+          </div>
+        )}
       </Modal>
     </div>
   );
