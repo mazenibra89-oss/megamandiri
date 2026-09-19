@@ -1,319 +1,135 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getDb, saveDb, Product, Transaction, Shift, generateId, Customer, ShopeeOrder, Branch, CashflowTransaction } from '../lib/db';
 import { toast } from 'sonner';
+import type { Branch, Product, Transaction, CashflowTransaction, ShopeeOrder, Shift, Customer } from '../lib/db';
 
-const delay = (ms = 300) => new Promise(res => setTimeout(res, ms));
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+
+const api = async <T>(endpoint: string, options?: RequestInit): Promise<T> => {
+  const res = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    }
+  });
+  if (!res.ok) throw new Error('API Error');
+  return res.json() as Promise<T>;
+};
 
 export const useBranches = () => useQuery({
   queryKey: ['branches'],
-  queryFn: async () => { await delay(); return getDb().branches; }
+  queryFn: () => api<Branch[]>('/branches')
 });
 
 export const useAddBranch = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (branch: Omit<Branch, 'id'>) => {
-      await delay();
-      const db = getDb();
-      const newBranch: Branch = { ...branch, id: generateId('br') };
-      db.branches.push(newBranch);
-      db.products = db.products.map((product: Product) => ({
-        ...product,
-        stock: { ...product.stock, [newBranch.id]: 0 },
-      }));
-      saveDb(db);
-      return newBranch;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['branches'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
-      toast.success('Cabang baru berhasil ditambahkan');
-    },
+    mutationFn: (branch: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'>) => api<Branch>('/branches', { method: 'POST', body: JSON.stringify(branch) }),
+    onSuccess: () => toast.success('Cabang baru berhasil ditambahkan'),
   });
 };
 
 export const useProducts = () => useQuery({
   queryKey: ['products'],
-  queryFn: async () => { await delay(); return getDb().products as Product[]; }
+  queryFn: () => api<Product[]>('/products')
 });
 
 export const useSaveProduct = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (product: Partial<Product> & { name: string, price: number }) => {
-      await delay();
-      const db = getDb();
-      let newProduct;
-      if (product.id) {
-        db.products = db.products.map((p: Product) => p.id === product.id ? { ...p, ...product } : p);
-        newProduct = product;
-      } else {
-        newProduct = { 
-          ...product, 
-          id: generateId('p'), 
-          sku: product.sku || `SKU-${Math.floor(Math.random() * 10000)}`,
-          category: product.category || 'Lainnya',
-          stock: product.stock || {} 
-        };
-        db.products.push(newProduct);
-      }
-      saveDb(db);
-      return newProduct;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['products'] });
-      toast.success('Produk berhasil disimpan');
-    }
+    mutationFn: (product: any) => api<Product>('/products', { method: 'POST', body: JSON.stringify(product) }),
+    onSuccess: () => toast.success('Produk berhasil disimpan')
   });
 };
 
 export const useDeleteProduct = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      await delay();
-      const db = getDb();
-      db.products = db.products.filter((p: Product) => p.id !== id);
-      saveDb(db);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['products'] });
-      toast.success('Produk berhasil dihapus');
-    }
+    mutationFn: (id: string) => api<{success: boolean}>(`/products/${id}`, { method: 'DELETE' }),
+    onSuccess: () => toast.success('Produk berhasil dihapus')
   });
 };
 
 export const useUpdateStock = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ productId, branchId, newStock }: { productId: string, branchId: string, newStock: number }) => {
-      await delay();
-      const db = getDb();
-      db.products = db.products.map((p: Product) => {
-        if (p.id === productId) {
-          return { ...p, stock: { ...p.stock, [branchId]: Math.max(0, newStock) } };
-        }
-        return p;
-      });
-      saveDb(db);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] })
+    mutationFn: (data: { productId: string, branchId: string, newStock: number }) => api<{success: boolean}>('/products/stock', { method: 'PUT', body: JSON.stringify(data) })
   });
 };
 
 export const useTransactions = (branchId?: string) => useQuery({
   queryKey: ['transactions', branchId],
-  queryFn: async () => { 
-    await delay(); 
-    let txs = getDb().transactions as Transaction[];
-    if (branchId) txs = txs.filter(t => t.branchId === branchId);
-    return txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }
+  queryFn: () => api<Transaction[]>(`/transactions${branchId ? `?branchId=${branchId}` : ''}`)
 });
 
 export const useCashflowTransactions = (branchId?: string) => useQuery({
-  queryKey: ['cashflow-transactions', branchId],
-  queryFn: async () => {
-    await delay();
-    let entries = getDb().cashflowTransactions || [];
-    if (branchId) entries = entries.filter((entry) => entry.branchId === branchId);
-    return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  },
+  queryKey: ['cashflow', branchId],
+  queryFn: () => api<CashflowTransaction[]>(`/cashflow${branchId ? `?branchId=${branchId}` : ''}`)
 });
 
 export const useCreateCashflowTransaction = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Omit<CashflowTransaction, 'id'>) => {
-      await delay();
-      const db = getDb();
-      const entry: CashflowTransaction = { ...data, id: generateId('cf') };
-      db.cashflowTransactions = db.cashflowTransactions || [];
-      db.cashflowTransactions.push(entry);
-      saveDb(db);
-      return entry;
-    },
-    onSuccess: (_, variables) => {
-      qc.invalidateQueries({ queryKey: ['cashflow-transactions', variables.branchId] });
-      toast.success('Transaksi cashflow berhasil disimpan');
-    },
+    mutationFn: (data: any) => api<CashflowTransaction>('/cashflow', { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: () => toast.success('Transaksi cashflow berhasil disimpan'),
   });
 };
 
 export const useCreateTransaction = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Omit<Transaction, 'id' | 'receiptNo' | 'date'>) => {
-      await delay();
-      const db = getDb();
-      const newTx: Transaction = {
-        ...data,
-        id: generateId('tx'),
-        receiptNo: `TRX-${Math.floor(Math.random() * 1000000)}`,
-        date: new Date().toISOString()
-      };
-      
-      // Reduce stock
-      db.products = db.products.map((p: Product) => {
-        const item = data.items.find(i => i.productId === p.id);
-        if (item) {
-          const currentStock = p.stock[data.branchId] || 0;
-          return { ...p, stock: { ...p.stock, [data.branchId]: Math.max(0, currentStock - item.qty) } };
-        }
-        return p;
-      });
-
-      db.transactions.push(newTx);
-      if (data.customerPhone) {
-        const normalizedPhone = data.customerPhone;
-        const existing = db.customers.find((customer: Customer) => customer.phone === normalizedPhone);
-        if (!existing) {
-          db.customers.push({
-            id: generateId('cus'),
-            name: data.customerName || 'Pelanggan',
-            phone: normalizedPhone,
-            points: Math.floor(data.total / 10000),
-          });
-        } else {
-          existing.name = data.customerName || existing.name;
-          existing.points += Math.floor(data.total / 10000);
-        }
-      }
-      saveDb(db);
-      return newTx;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
-      qc.invalidateQueries({ queryKey: ['customers'] });
-    }
+    mutationFn: (data: any) => api<Transaction>('/transactions', { method: 'POST', body: JSON.stringify(data) })
   });
 };
 
 export const useVoidTransaction = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      await delay();
-      const db = getDb();
-      const tx = db.transactions.find((t: Transaction) => t.id === id);
-      if (!tx || tx.status === 'void') return;
-      
-      tx.status = 'void';
-      
-      // Return stock
-      db.products = db.products.map((p: Product) => {
-        const item = tx.items.find((i: any) => i.productId === p.id);
-        if (item) {
-          const currentStock = p.stock[tx.branchId] || 0;
-          return { ...p, stock: { ...p.stock, [tx.branchId]: currentStock + item.qty } };
-        }
-        return p;
-      });
-
-      saveDb(db);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
-      toast.success('Transaksi berhasil dibatalkan (void)');
-    }
+    mutationFn: (id: string) => api<{success: boolean}>(`/transactions/${id}/void`, { method: 'PUT' }),
+    onSuccess: () => toast.success('Transaksi berhasil dibatalkan (void)')
   });
 };
 
 export const useCustomers = () => useQuery({
   queryKey: ['customers'],
-  queryFn: async () => { await delay(); return getDb().customers as Customer[]; }
+  queryFn: () => api<Customer[]>('/customers')
 });
 
 export const useShopeeOrders = () => useQuery({
   queryKey: ['shopee'],
-  queryFn: async () => { await delay(); return getDb().shopeeOrders as ShopeeOrder[]; }
+  queryFn: () => api<ShopeeOrder[]>('/shopee')
 });
 
 export const useUpdateShopeeOrder = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string, status: ShopeeOrder['status'] }) => {
-      await delay();
-      const db = getDb();
-      db.shopeeOrders = db.shopeeOrders.map((o: ShopeeOrder) => o.id === id ? { ...o, status } : o);
-      saveDb(db);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['shopee'] })
+    mutationFn: ({ id, status }: { id: string, status: string }) => api<{success: boolean}>(`/shopee/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) })
   });
 };
 
 export const useShifts = (branchId?: string) => useQuery({
   queryKey: ['shifts', branchId],
-  queryFn: async () => {
-    await delay();
-    let shifts = getDb().shifts as Shift[];
-    if (branchId) shifts = shifts.filter(s => s.branchId === branchId);
-    return shifts;
-  }
+  queryFn: () => api<Shift[]>(`/shifts${branchId ? `?branchId=${branchId}` : ''}`)
 });
 
 export const useActiveShift = (branchId: string | null) => useQuery({
   queryKey: ['active-shift', branchId],
   queryFn: async () => {
     if (!branchId) return null;
-    await delay();
-    const shifts = getDb().shifts as Shift[];
-    return shifts.find(s => s.branchId === branchId && s.status === 'active') || null;
+    const shifts = await api<Shift[]>(`/shifts?branchId=${branchId}`);
+    return shifts.find(s => s.status === 'active') || null;
   },
   enabled: !!branchId
 });
 
 export const useOpenShift = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ branchId, initialCash }: { branchId: string, initialCash: number }) => {
-      await delay();
-      const db = getDb();
-      const newShift: Shift = {
-        id: generateId('shf'),
-        branchId,
-        initialCash,
-        startTime: new Date().toISOString(),
-        status: 'active'
-      };
-      db.shifts.push(newShift);
-      saveDb(db);
-      return newShift;
-    },
-    onSuccess: (_, variables) => {
-      qc.invalidateQueries({ queryKey: ['shifts'] });
-      qc.invalidateQueries({ queryKey: ['active-shift', variables.branchId] });
-      toast.success('Shift berhasil dibuka');
-    }
+    mutationFn: (data: { branchId: string, initialCash: number }) => api<Shift>('/shifts/open', { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: () => toast.success('Shift berhasil dibuka')
   });
 };
 
 export const useCloseShift = () => {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ shiftId, finalCash }: { shiftId: string, finalCash: number }) => {
-      await delay();
-      const db = getDb();
-      const shift = db.shifts.find((s: Shift) => s.id === shiftId);
-      if (shift) {
-        shift.status = 'closed';
-        shift.endTime = new Date().toISOString();
-        shift.finalCash = finalCash;
-        saveDb(db);
-      }
-      return shift;
-    },
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['shifts'] });
-      if (data) qc.invalidateQueries({ queryKey: ['active-shift', data.branchId] });
-      toast.success('Shift berhasil ditutup');
-    }
+    mutationFn: (data: { shiftId: string, finalCash: number }) => api<Shift>('/shifts/close', { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: () => toast.success('Shift berhasil ditutup')
   });
 };
 
 export const useSettings = () => useQuery({
   queryKey: ['settings'],
-  queryFn: async () => { await delay(); return getDb().settings; }
+  queryFn: () => api<any>('/settings')
 });

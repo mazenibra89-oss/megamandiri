@@ -26,7 +26,10 @@ const queryClient = new QueryClient({
   }
 });
 
+import { useSocketSync } from '@/hooks/use-socket';
+
 function AppRoutes() {
+  useSocketSync();
   return (
     <Shell>
       <Switch>
