@@ -1,5 +1,20 @@
 export interface Branch { id: string; name: string; address: string; phone?: string; }
-export interface Product { id: string; sku: string; name: string; category: string; price: number; stock: Record<string, number>; image?: string; }
+export interface WholesaleTier { minQty: number; price: number; }
+export interface Product {
+  id: string;
+  sku: string;
+  barcode?: string;
+  name: string;
+  category: string;
+  unit?: string;
+  cost?: number;
+  price: number;
+  stock: Record<string, number>;
+  minStock?: number;
+  shopeeEnabled?: boolean;
+  wholesaleTiers?: WholesaleTier[];
+  image?: string;
+}
 export interface Customer { id: string; name: string; phone: string; points: number; }
 export interface TransactionItem { productId: string; name: string; qty: number; price: number; }
 export interface Transaction { id: string; receiptNo: string; branchId: string; date: string; total: number; paymentMethod: string; status: 'success' | 'void'; items: TransactionItem[]; customerId?: string; customerName?: string; customerPhone?: string; }

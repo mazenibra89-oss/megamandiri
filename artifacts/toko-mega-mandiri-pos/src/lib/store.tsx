@@ -4,6 +4,8 @@ export interface CartItem {
   productId: string;
   name: string;
   price: number;
+  retailPrice?: number;
+  wholesaleTiers?: { minQty: number; price: number }[];
   qty: number;
 }
 
@@ -11,7 +13,7 @@ interface AppState {
   activeBranchId: string | null;
   setActiveBranchId: (id: string) => void;
   cart: CartItem[];
-  addToCart: (product: { id: string; name: string; price: number }) => void;
+  addToCart: (product: { id: string; name: string; price: number; wholesaleTiers?: { minQty: number; price: number }[] }) => void;
   updateCartQty: (productId: string, qty: number) => void;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
@@ -38,7 +40,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     localStorage.setItem('pos_cart', JSON.stringify(cart));
   }, [cart]);
 
-  const addToCart = (product: { id: string; name: string; price: number }) => {
+  const addToCart = (product: { id: string; name: string; price: number; wholesaleTiers?: { minQty: number; price: number }[] }) => {
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id);
       if (existing) {
@@ -46,7 +48,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
           item.productId === product.id ? { ...item, qty: item.qty + 1 } : item
         );
       }
-      return [...prev, { productId: product.id, name: product.name, price: product.price, qty: 1 }];
+      return [...prev, { productId: product.id, name: product.name, price: product.price, retailPrice: product.price, wholesaleTiers: product.wholesaleTiers, qty: 1 }];
     });
   };
 

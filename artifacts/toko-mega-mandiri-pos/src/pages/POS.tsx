@@ -27,7 +27,13 @@ export default function POS() {
   const [receiptPreview, setReceiptPreview] = useState('');
   const [isSharingReceipt, setIsSharingReceipt] = useState(false);
 
-  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+  const getEffectivePrice = (item: (typeof cart)[number]) => {
+    const matchedTier = [...(item.wholesaleTiers || [])]
+      .sort((a, b) => b.minQty - a.minQty)
+      .find((tier) => item.qty >= tier.minQty);
+    return matchedTier?.price ?? item.retailPrice ?? item.price;
+  };
+  const cartTotal = cart.reduce((sum, item) => sum + (getEffectivePrice(item) * item.qty), 0);
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
@@ -73,7 +79,7 @@ export default function POS() {
       status: 'success',
       customerName: customerName.trim().slice(0, 80) || undefined,
       customerPhone: normalizedPhone || undefined,
-      items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price }))
+      items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: getEffectivePrice(c) }))
     }, {
       onSuccess: (transaction) => {
         setIsPaymentModalOpen(false);
@@ -167,7 +173,7 @@ export default function POS() {
                     key={product.id} 
                     className={`cursor-pointer transition-all hover:border-primary overflow-hidden ${stock <= 0 ? 'opacity-50 grayscale' : 'hover:-translate-y-1'}`}
                     onClick={() => {
-                      if (stock > 0) addToCart({ id: product.id, name: product.name, price: product.price });
+                      if (stock > 0) addToCart({ id: product.id, name: product.name, price: product.price, wholesaleTiers: product.wholesaleTiers });
                       else toast.error('Stok habis');
                     }}
                   >
@@ -210,11 +216,21 @@ export default function POS() {
               <p>Keranjang kosong</p>
             </div>
           ) : (
-            cart.map(item => (
+            cart.map(item => {
+              const effectivePrice = getEffectivePrice(item);
+              const wholesaleActive = effectivePrice < (item.retailPrice ?? item.price);
+              const nextTier = [...(item.wholesaleTiers || [])]
+                .sort((a, b) => a.minQty - b.minQty)
+                .find((tier) => tier.minQty > item.qty);
+              return (
               <div key={item.productId} className="flex gap-3">
                 <div className="flex-1 min-w-0">
                   <h5 className="font-medium text-sm truncate">{item.name}</h5>
-                  <p className="text-primary font-semibold text-sm">{formatIDR(item.price)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-primary font-semibold text-sm">{formatIDR(effectivePrice)}</p>
+                    {wholesaleActive && <Badge variant="warning" className="text-[10px]">Harga Grosir</Badge>}
+                  </div>
+                  {nextTier && <p className="text-[11px] text-amber-600 mt-1">Tambah {nextTier.minQty - item.qty} lagi untuk {formatIDR(nextTier.price)}/unit</p>}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Button variant="outline" size="icon" className="h-7 w-7 rounded-full" onClick={() => updateCartQty(item.productId, item.qty - 1)}>
@@ -226,7 +242,8 @@ export default function POS() {
                   </Button>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
 

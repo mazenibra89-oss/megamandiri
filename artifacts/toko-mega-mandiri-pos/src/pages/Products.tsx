@@ -4,55 +4,104 @@ import { Button, Input, Card, Badge, Label } from '@/components/ui/primitives';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Modal } from '@/components/ui/modal';
 import { formatIDR } from '@/lib/utils';
-import { Plus, Search, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Tag, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAppStore } from '@/lib/store';
+import type { Product, WholesaleTier } from '@/lib/db';
 
 export default function Products() {
   const { data: products = [], isLoading } = useProducts();
   const saveProduct = useSaveProduct();
   const deleteProduct = useDeleteProduct();
+  const { activeBranchId } = useAppStore();
   
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
   // Form state
-  const [formData, setFormData] = useState({
-    sku: '', name: '', category: '', price: ''
-  });
+  const emptyForm = {
+    sku: '', barcode: '', name: '', category: 'Sembako', unit: 'pcs',
+    cost: '', price: '', stock: '', minStock: '5', shopeeEnabled: false,
+  };
+  const [formData, setFormData] = useState(emptyForm);
+  const [wholesaleTiers, setWholesaleTiers] = useState<WholesaleTier[]>([]);
 
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(search.toLowerCase()) || 
     p.sku.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleOpenModal = (product?: any) => {
+  const handleOpenModal = (product?: Product) => {
     if (product) {
       setEditingId(product.id);
-      setFormData({ sku: product.sku, name: product.name, category: product.category, price: product.price.toString() });
+      setFormData({
+        sku: product.sku,
+        barcode: product.barcode || '',
+        name: product.name,
+        category: product.category,
+        unit: product.unit || 'pcs',
+        cost: (product.cost || '').toString(),
+        price: product.price.toString(),
+        stock: (product.stock[activeBranchId || ''] || 0).toString(),
+        minStock: (product.minStock ?? 5).toString(),
+        shopeeEnabled: product.shopeeEnabled || false,
+      });
+      setWholesaleTiers(product.wholesaleTiers || []);
     } else {
       setEditingId(null);
-      setFormData({ sku: '', name: '', category: 'Minuman', price: '' });
+      setFormData(emptyForm);
+      setWholesaleTiers([]);
     }
     setIsModalOpen(true);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.price || !formData.category) {
+    if (!formData.name.trim() || !formData.sku.trim() || !formData.price || !formData.category.trim()) {
       toast.error('Mohon lengkapi data produk');
+      return;
+    }
+    const retailPrice = Number(formData.price);
+    const cost = Number(formData.cost || 0);
+    const validTiers = wholesaleTiers
+      .filter((tier) => tier.minQty > 1 && tier.price > 0)
+      .sort((a, b) => a.minQty - b.minQty);
+    if (new Set(validTiers.map((tier) => tier.minQty)).size !== validTiers.length) {
+      toast.error('Jumlah minimum setiap tingkat grosir harus berbeda');
+      return;
+    }
+    if (validTiers.some((tier) => tier.price > retailPrice)) {
+      toast.error('Harga grosir tidak boleh lebih tinggi dari harga eceran');
       return;
     }
 
     saveProduct.mutate({
       id: editingId || undefined,
       sku: formData.sku,
-      name: formData.name,
-      category: formData.category,
-      price: parseInt(formData.price)
+      barcode: formData.barcode.trim(),
+      name: formData.name.trim().slice(0, 100),
+      category: formData.category.trim().slice(0, 40),
+      unit: formData.unit.trim().slice(0, 20),
+      cost,
+      price: retailPrice,
+      stock: { ...(products.find((p) => p.id === editingId)?.stock || {}), [activeBranchId || '']: Number(formData.stock || 0) },
+      minStock: Number(formData.minStock || 0),
+      shopeeEnabled: formData.shopeeEnabled,
+      wholesaleTiers: validTiers,
     }, {
       onSuccess: () => setIsModalOpen(false)
     });
+  };
+
+  const setNumericField = (field: 'cost' | 'price' | 'stock' | 'minStock', value: string) => {
+    setFormData((previous) => ({ ...previous, [field]: value.replace(/\D/g, '').slice(0, 12) }));
+  };
+
+  const addTier = () => {
+    if (wholesaleTiers.length >= 5) return;
+    const last = wholesaleTiers.at(-1);
+    setWholesaleTiers([...wholesaleTiers, { minQty: (last?.minQty || 1) + 5, price: Math.max(0, Number(formData.price || 0) - 500) }]);
   };
 
   const handleDelete = (id: string) => {
@@ -127,27 +176,87 @@ export default function Products() {
         </div>
       </Card>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? 'Edit Produk' : 'Tambah Produk'}>
-        <form onSubmit={handleSubmit} className="space-y-4">
+       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? 'Edit Produk' : 'Tambah Produk Baru'} maxWidth="max-w-4xl">
+         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <Label>SKU (Opsional)</Label>
-            <Input value={formData.sku} onChange={e => setFormData(prev => ({ ...prev, sku: e.target.value }))} placeholder="Kosongkan untuk auto-generate" />
+             <Label>Nama Produk *</Label>
+             <Input className="h-11" maxLength={100} value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="Contoh: Penggaris 30 cm" required />
           </div>
-          <div className="space-y-2">
-            <Label>Nama Produk</Label>
-            <Input value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} required />
+           <div className="grid md:grid-cols-2 gap-4">
+             <div className="space-y-2">
+               <Label>SKU (Kode Produk Unik) *</Label>
+               <Input className="h-11" maxLength={30} value={formData.sku} onChange={e => setFormData(prev => ({ ...prev, sku: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') }))} placeholder="SKU-5269" required />
+             </div>
+             <div className="space-y-2">
+               <Label>Barcode (EAN-13 / UPC)</Label>
+               <Input className="h-11" inputMode="numeric" value={formData.barcode} onChange={e => setFormData(prev => ({ ...prev, barcode: e.target.value.replace(/\D/g, '').slice(0, 18) }))} placeholder="8992775112012" />
+             </div>
           </div>
-          <div className="space-y-2">
-            <Label>Kategori</Label>
-            <Input value={formData.category} onChange={e => setFormData(prev => ({ ...prev, category: e.target.value }))} required />
-          </div>
-          <div className="space-y-2">
-            <Label>Harga (Rp)</Label>
-            <Input type="number" value={formData.price} onChange={e => setFormData(prev => ({ ...prev, price: e.target.value }))} required />
-          </div>
-          <div className="pt-4 flex justify-end gap-2">
+           <div className="grid md:grid-cols-2 gap-4">
+             <div className="space-y-2">
+               <Label>Kategori</Label>
+               <Input className="h-11" maxLength={40} value={formData.category} onChange={e => setFormData(prev => ({ ...prev, category: e.target.value }))} />
+             </div>
+             <div className="space-y-2">
+               <Label>Satuan</Label>
+               <Input className="h-11" maxLength={20} value={formData.unit} onChange={e => setFormData(prev => ({ ...prev, unit: e.target.value }))} placeholder="pcs, pack, dus" />
+             </div>
+           </div>
+           <div className="border-t pt-5 grid grid-cols-2 lg:grid-cols-4 gap-4">
+             {([
+               ['cost', 'Harga Beli (HPP)'],
+               ['price', 'Harga Jual Eceran *'],
+               ['stock', 'Stok Tersedia'],
+               ['minStock', 'Batas Stok Menipis'],
+             ] as const).map(([field, label]) => (
+               <div className="space-y-2" key={field}>
+                 <Label>{label}</Label>
+                 <div className="relative">
+                   {(field === 'cost' || field === 'price') && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">Rp</span>}
+                   <Input className={`h-11 ${(field === 'cost' || field === 'price') ? 'pl-9' : ''}`} inputMode="numeric" value={formData[field]} onChange={(e) => setNumericField(field, e.target.value)} required={field === 'price'} />
+                 </div>
+               </div>
+             ))}
+           </div>
+
+           <div className="rounded-2xl border border-amber-300 bg-amber-50/60 dark:bg-amber-950/20 p-4 space-y-4">
+             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+               <div>
+                 <h3 className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2"><Tag className="h-4 w-4" /> Harga Grosir Bertingkat (Opsional)</h3>
+                 <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">Harga otomatis berubah di kasir saat jumlah beli mencapai batas minimum.</p>
+               </div>
+               <Button type="button" size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={addTier} disabled={wholesaleTiers.length >= 5 || !formData.price}>
+                 <Plus className="h-4 w-4 mr-1" /> Tambah Tingkat
+               </Button>
+             </div>
+             {wholesaleTiers.length === 0 && <p className="text-sm text-amber-700/70 text-center py-3">Belum ada harga grosir.</p>}
+             {wholesaleTiers.map((tier, index) => (
+               <div className="grid grid-cols-[90px_1fr_1fr_40px] gap-2 items-center" key={index}>
+                 <Label className="text-amber-900 dark:text-amber-200">Tingkat {index + 1}</Label>
+                 <div className="relative">
+                   <Input inputMode="numeric" value={tier.minQty || ''} onChange={(e) => setWholesaleTiers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, minQty: Number(e.target.value.replace(/\D/g, '').slice(0, 6)) } : item))} />
+                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">unit</span>
+                 </div>
+                 <div className="relative">
+                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">Rp</span>
+                   <Input className="pl-9" inputMode="numeric" value={tier.price || ''} onChange={(e) => setWholesaleTiers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, price: Number(e.target.value.replace(/\D/g, '').slice(0, 12)) } : item))} />
+                 </div>
+                 <Button type="button" variant="ghost" size="icon" className="text-destructive" onClick={() => setWholesaleTiers((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="h-4 w-4" /></Button>
+               </div>
+             ))}
+             {wholesaleTiers.some((tier) => tier.price > 0 && tier.price < Number(formData.cost || 0)) && <p className="text-xs text-destructive">Peringatan: ada harga grosir yang lebih rendah dari HPP.</p>}
+           </div>
+
+           <label className="rounded-xl border bg-muted/20 p-4 flex items-center justify-between gap-4 cursor-pointer">
+             <div>
+               <p className="font-semibold flex items-center gap-2"><ShoppingBag className="h-4 w-4 text-[#ee4d2d]" /> Jual & Sinkronkan ke Shopee</p>
+               <p className="text-xs text-muted-foreground mt-1">Stok offline di kasir akan dicerminkan ke toko Shopee.</p>
+             </div>
+             <input type="checkbox" className="h-5 w-5 accent-primary" checked={formData.shopeeEnabled} onChange={(e) => setFormData((previous) => ({ ...previous, shopeeEnabled: e.target.checked }))} />
+           </label>
+           <div className="pt-4 border-t flex justify-end gap-2 sticky bottom-0 bg-card">
             <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Batal</Button>
-            <Button type="submit" disabled={saveProduct.isPending}>Simpan</Button>
+             <Button type="submit" disabled={saveProduct.isPending}>{editingId ? 'Simpan Perubahan' : 'Tambah Produk'}</Button>
           </div>
         </form>
       </Modal>
