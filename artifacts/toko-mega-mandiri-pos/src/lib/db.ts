@@ -18,6 +18,16 @@ export interface Product {
 export interface Customer { id: string; name: string; phone: string; points: number; }
 export interface TransactionItem { productId: string; name: string; qty: number; price: number; }
 export interface Transaction { id: string; receiptNo: string; branchId: string; date: string; total: number; paymentMethod: string; status: 'success' | 'void'; items: TransactionItem[]; customerId?: string; customerName?: string; customerPhone?: string; }
+export interface CashflowTransaction {
+  id: string;
+  branchId: string;
+  type: 'income' | 'expense';
+  date: string;
+  amount: number;
+  category: string;
+  description?: string;
+  receiptImage?: string;
+}
 export interface ShopeeOrder { id: string; orderNo: string; items: {productId: string, qty: number}[]; total: number; status: 'new' | 'ready' | 'completed'; date: string; }
 export interface Shift { id: string; branchId: string; startTime: string; endTime?: string; initialCash: number; finalCash?: number; status: 'active' | 'closed'; }
 export interface PosDatabase {
@@ -25,6 +35,7 @@ export interface PosDatabase {
   products: Product[];
   customers: Customer[];
   transactions: Transaction[];
+  cashflowTransactions: CashflowTransaction[];
   shopeeOrders: ShopeeOrder[];
   shifts: Shift[];
   settings: { storeName: string; receiptFooter: string };
@@ -54,6 +65,7 @@ const defaultData: PosDatabase = {
   transactions: [
     { id: 't1', receiptNo: 'TRX-1001', branchId: 'b1', date: new Date(Date.now() - 86400000).toISOString(), total: 40000, paymentMethod: 'QRIS', status: 'success', items: [{ productId: 'p1', name: 'Kopi Susu Gula Aren', qty: 2, price: 20000 }] }
   ] as Transaction[],
+  cashflowTransactions: [],
   shopeeOrders: [
     { id: 'sh1', orderNo: 'SHP-001', items: [{ productId: 'p1', qty: 2 }], total: 40000, status: 'new', date: new Date().toISOString() },
     { id: 'sh2', orderNo: 'SHP-002', items: [{ productId: 'p3', qty: 1 }, { productId: 'p1', qty: 1 }], total: 45000, status: 'ready', date: new Date(Date.now() - 3600000).toISOString() }
@@ -72,7 +84,11 @@ export const getDb = (): PosDatabase => {
       localStorage.setItem(DB_KEY, JSON.stringify(defaultData));
       return defaultData;
     }
-    return JSON.parse(data) as PosDatabase;
+    const parsed = JSON.parse(data) as PosDatabase;
+    return {
+      ...parsed,
+      cashflowTransactions: parsed.cashflowTransactions || [],
+    };
   } catch (e) {
     return defaultData;
   }

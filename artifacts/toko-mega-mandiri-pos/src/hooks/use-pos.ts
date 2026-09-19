@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getDb, saveDb, Product, Transaction, Shift, generateId, Customer, ShopeeOrder, Branch } from '../lib/db';
+import { getDb, saveDb, Product, Transaction, Shift, generateId, Customer, ShopeeOrder, Branch, CashflowTransaction } from '../lib/db';
 import { toast } from 'sonner';
 
 const delay = (ms = 300) => new Promise(res => setTimeout(res, ms));
@@ -110,6 +110,35 @@ export const useTransactions = (branchId?: string) => useQuery({
     return txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }
 });
+
+export const useCashflowTransactions = (branchId?: string) => useQuery({
+  queryKey: ['cashflow-transactions', branchId],
+  queryFn: async () => {
+    await delay();
+    let entries = getDb().cashflowTransactions || [];
+    if (branchId) entries = entries.filter((entry) => entry.branchId === branchId);
+    return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  },
+});
+
+export const useCreateCashflowTransaction = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Omit<CashflowTransaction, 'id'>) => {
+      await delay();
+      const db = getDb();
+      const entry: CashflowTransaction = { ...data, id: generateId('cf') };
+      db.cashflowTransactions = db.cashflowTransactions || [];
+      db.cashflowTransactions.push(entry);
+      saveDb(db);
+      return entry;
+    },
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: ['cashflow-transactions', variables.branchId] });
+      toast.success('Transaksi cashflow berhasil disimpan');
+    },
+  });
+};
 
 export const useCreateTransaction = () => {
   const qc = useQueryClient();
