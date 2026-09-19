@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+const fallbackHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const SOCKET_URL = import.meta.env.VITE_API_URL || `http://${fallbackHost}:5001`;
 
 export const socket = io(SOCKET_URL, {
   autoConnect: false, // We'll connect manually in the hook

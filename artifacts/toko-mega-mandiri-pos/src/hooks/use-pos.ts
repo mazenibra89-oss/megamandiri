@@ -2,7 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { Branch, Product, Transaction, CashflowTransaction, ShopeeOrder, Shift, Customer } from '../lib/db';
 
-let API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+const fallbackHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+let API_URL = import.meta.env.VITE_API_URL || `http://${fallbackHost}:5001/api`;
 if (API_URL && !API_URL.endsWith('/api')) {
   API_URL += '/api';
 }
