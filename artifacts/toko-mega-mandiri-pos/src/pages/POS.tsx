@@ -4,7 +4,7 @@ import { useProducts, useCreateTransaction, useActiveShift } from '@/hooks/use-p
 import { Card, Button, Input, Badge, Label, CardContent } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/modal';
 import { formatIDR } from '@/lib/utils';
-import { Search, ShoppingCart, Plus, Minus, Wallet, Loader2, QrCode, UserRound, Phone, MessageCircle, CheckCircle2 } from 'lucide-react';
+import { Search, ShoppingCart, Plus, Minus, Wallet, Loader2, QrCode, UserRound, Phone, MessageCircle, CheckCircle2, Download, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Transaction } from '@/lib/db';
 import { receiptPreviewUrl } from '@/lib/receipt-image';
@@ -127,6 +127,41 @@ Terima kasih atas kunjungan Anda.`;
       '_blank',
       'noopener,noreferrer',
     );
+  };
+
+  const saveReceiptImage = (transaction: Transaction) => {
+    if (!receiptPreview) {
+      toast.error('Gambar struk belum siap');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = receiptPreview;
+    link.download = `struk-${transaction.receiptNo}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    toast.success('Gambar struk berhasil disimpan');
+  };
+
+  const copyReceiptImage = async () => {
+    if (!receiptPreview) {
+      toast.error('Gambar struk belum siap');
+      return;
+    }
+    if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
+      toast.error('Browser ini belum mendukung salin gambar');
+      return;
+    }
+    try {
+      const sourceBlob = await fetch(receiptPreview).then((response) => response.blob());
+      const pngBlob = sourceBlob.type === 'image/png'
+        ? sourceBlob
+        : new Blob([await sourceBlob.arrayBuffer()], { type: 'image/png' });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+      toast.success('Gambar struk berhasil disalin');
+    } catch {
+      toast.error('Gambar struk belum berhasil disalin');
+    }
   };
 
   const quickCashButtons = [cartTotal, 50000, 100000, 200000].filter(v => v >= cartTotal);
@@ -374,8 +409,18 @@ Terima kasih atas kunjungan Anda.`;
               <p><span className="text-muted-foreground">WhatsApp:</span> <strong>{completedTx.customerPhone || 'Belum diisi'}</strong></p>
             </div>
             {receiptPreview ? (
-              <div className="rounded-xl border bg-slate-100 p-3 max-h-80 overflow-y-auto">
-                <img src={receiptPreview} alt={`Struk ${completedTx.receiptNo}`} className="w-full max-w-sm mx-auto shadow-sm" />
+              <div className="space-y-3">
+                <div className="rounded-xl border bg-slate-100 p-3 max-h-80 overflow-y-auto">
+                  <img src={receiptPreview} alt={`Struk ${completedTx.receiptNo}`} className="w-full max-w-sm mx-auto shadow-sm" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" onClick={() => saveReceiptImage(completedTx)}>
+                    <Download className="h-4 w-4 mr-2" /> Simpan Gambar
+                  </Button>
+                  <Button variant="outline" onClick={copyReceiptImage}>
+                    <Copy className="h-4 w-4 mr-2" /> Salin Gambar
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="rounded-xl border p-4 text-sm whitespace-pre-line max-h-52 overflow-y-auto">
